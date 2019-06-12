@@ -2,11 +2,10 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys\stat.h>
-#include <sys\types.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <malloc.h>
 #include <string.h>
-#include <direct.h>
 #include "codec.h"
 
 #define FILE_OUTPUT "output.log"
@@ -145,8 +144,8 @@ void split(struct sector *s)
 	FILE *fp;
 	
 	// Open Sector??.bin file for write
-	p = (char *)malloc(sizeof(char) * (strlen(dir) + strlen("\\Sector??.bin")) + 1);
-	sprintf(p, "%s\\Sector%02d.bin", dir, count);
+	p = (char *)malloc(sizeof(char) * (strlen(dir) + strlen("/Sector??.bin")) + 1);
+	sprintf(p, "%s/Sector%02d.bin", dir, count);
 	fp = fopen(p, "wb");
 	free(p);
 	if (fp == NULL) {
@@ -176,7 +175,7 @@ int main(int argc, char *argv[])
 		fputs("Noahsplit input-file output-directory [no]\n", stderr);
 		return 1;
 	}
-	if (argc == 4 && _stricmp(argv[3], "no") == 0)
+	if (argc == 4 && strcmp(argv[3], "no") == 0)
 		nosplit++;
 	
 	// Open input file for read
@@ -187,14 +186,13 @@ int main(int argc, char *argv[])
 	}
 	rewind(input);
 	
-	// Create output directory, ignore errors
+	// Output directory
 	dir = argv[2];
-	_mkdir(dir);
 	
 	// Open output.log file for write
-	p = malloc(sizeof(char) * (strlen(dir) + strlen("\\" FILE_OUTPUT)) + 1);
+	p = malloc(sizeof(char) * (strlen(dir) + strlen("/" FILE_OUTPUT)) + 1);
 	strcpy(p, dir);
-	strcat(p, "\\" FILE_OUTPUT);
+	strcat(p, "/" FILE_OUTPUT);
 	output = fopen(p, "wb");
 	free(p);
 	if (output == NULL) {
@@ -204,9 +202,9 @@ int main(int argc, char *argv[])
 	rewind(output);
 	
 	// Open pkg.cfg file for write
-	p = malloc(sizeof(char) * (strlen(dir) + strlen("\\" FILE_PKGCFG)) + 1);
+	p = malloc(sizeof(char) * (strlen(dir) + strlen("/" FILE_PKGCFG)) + 1);
 	strcpy(p, dir);
-	strcat(p, "\\" FILE_PKGCFG);
+	strcat(p, "/" FILE_PKGCFG);
 	pkgcfg = fopen(p, "wb");
 	free(p);
 	if (pkgcfg == NULL) {
