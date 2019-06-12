@@ -1,2 +1,2 @@
-# NoahSplit
-Program for split upgrade file for Noah mobile learning device
+# mkpkg
+Create or extract upgrade.bin file for Noah mobile learning device
