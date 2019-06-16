@@ -84,15 +84,20 @@ std::string fstype(uint32_t v)
 	return "unknown" + std::to_string(v);
 }
 
-void copy(std::ofstream &out, std::ifstream &in, uint32_t size)
+void copy(std::ofstream &out, std::ifstream &in, uint32_t size, uint32_t align)
 {
-	static const uint32_t block = 4 * 1024 * 1024;		// Block size 4MiB
+	static const uint32_t block = 4 * 1024 * 1024;	// Block size 4MiB
+	uint32_t padding = (align - (size % align)) % align;
 	uint8_t buf[block];
 	while (size) {
 		uint32_t s = std::min(block, size);
 		in.read(reinterpret_cast<char *>(buf), s);
 		out.write(reinterpret_cast<char *>(buf), s);
 		size -= s;
+	}
+	if (padding) {
+		bzero(buf, padding);
+		out.write(reinterpret_cast<char *>(buf), padding);
 	}
 }
 
@@ -110,7 +115,7 @@ void append(header_t::pkg_t &s, std::ofstream &sout, const std::string &out,
 	sbin.seekg(0);
 
 	std::clog << "if=" << filename << " of=" << out << " seek=" << sout.tellp() << " size=" << s.size << std::endl;
-	copy(sout, sbin, s.size);
+	copy(sout, sbin, s.size, 512);	// Align to 512-byte boundary for mount
 	s.crc = 0;
 }
 
@@ -225,7 +230,7 @@ void extract(const std::string &in, const std::string &out, bool ext)
 
 	header_t &h(*reinterpret_cast<header_t *>(header));
 	sout << "[header]" << std::endl;
-	sout << "tag=" << h.tag << std::endl;
+	sout << "tag=" << std::string(h.tag, sizeof(h.tag)).c_str() << std::endl;
 	sout << "ver=0x" << std::hex << std::setfill('0') << std::setw(8) << h.ver << std::endl;
 
 	auto *s = h.pkg;
@@ -242,7 +247,7 @@ void extract(const std::string &in, const std::string &out, bool ext)
 		sout << "include=1" << std::endl;
 		sout << "file=" << filename << std::endl;
 		sout << "ver=0x" << std::hex << std::setfill('0') << std::setw(8) << s->ver << std::endl;
-		sout << "dev=" << s->dev << std::endl;
+		sout << "dev=" << std::string(s->dev, sizeof(s->dev)).c_str() << std::endl;
 		sout << "fstype=" << fstype(s->fstype) << std::endl;
 		sout << "# crc=0x" << std::hex << std::setfill('0') << std::setw(8) << s->crc << std::endl;
 
@@ -257,7 +262,7 @@ void extract(const std::string &in, const std::string &out, bool ext)
 		std::clog << "if=" << in << " of=" << filename << " skip=" << s->offset << " size=" << s->size << std::endl;
 		if (!sin.seekg(s->offset))
 			throw std::runtime_error("Unexpected EOF at " + in + " offset " + std::to_string(s->offset));
-		copy(sbin, sin, s->size);
+		copy(sbin, sin, s->size, 1);
 		sbin.close();
 	}
 
@@ -288,6 +293,8 @@ int main(int argc, char *argv[])
 			op = OpExtract;
 		} else if (arg.compare("--split") == 0) {
 			op = OpSplit;
+		} else if (arg.compare("--help") == 0) {
+			help = true;
 		} else {
 			std::cerr << "Unknown argument: " << arg << std::endl;
 			help = true;
