@@ -2,3 +2,4 @@ mkpkg
 pkginfo
 pkginfo.mipsel
 upgrade*.bin
+xor

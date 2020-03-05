@@ -65,9 +65,9 @@ std::string fstype(uint32_t v)
 {
 	static const char *pfstype[] = {
 		"none",
-		"unknown1",
+		"msdos",
 		"unknown2",
-		"unknown3",
+		"yaffs",
 		"unknown4",
 		"unknown5",
 		"raw",
