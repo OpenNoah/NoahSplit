@@ -1,7 +1,7 @@
 .PHONY: all
 all: mkpkg pkginfo xor pkginfo.mipsel
 
-mkpkg: main.cpp
+mkpkg: main.cpp np1000.cpp np890.cpp
 	g++ -O3 -lboost_system -lboost_filesystem -o $@ $^
 
 pkginfo: info.c
