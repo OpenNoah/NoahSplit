@@ -4,7 +4,7 @@ mkpkgdir=~/mips/OpenNoah/NoahSplit
 mkpkg=$mkpkgdir/mkpkg
 (cd $mkpkgdir; make -j8)
 
-upd=update_*.bin
+upd=$(ls -1 update_*.bin)
 chmod 644 $upd
 
 sudo umount -l dump/rootfs || true
@@ -29,6 +29,8 @@ mkdir -p rootfs
 [ -e _nand6.bin ] && sudo mount -o ro -t ext2 _nand6.bin rootfs/usr/local/share || true
 [ -e _nand8.bin ] && sudo mount -o ro -t ext2 _nand8.bin rootfs/opt || true
 [ -e _nand7.bin ] && sudo mount -o ro,noatime,codepage=936,iocharset=gb2312 -t vfat _nand7.bin rootfs/mnt/usbdisk || true
+mv _nand0.bin ../export/u-boot.bin
+mv _nand1.bin ../export/zImage
 
 mkdir tmp
 sudo mount --bind tmp rootfs/tmp
@@ -39,7 +41,8 @@ mv sys/jj tmp/rescue.img
 sudo cp -a rootfs ../export/
 sudo umount -l rootfs || true
 
+arc=$(echo $upd | sed 's/^update_/np890_/;s/\.bin$/_dump.7z/')
 cd -
 #sudo tar acvf dump.tar.xz -C export .
-(cd export; sudo 7za a ../dump.7z)
+(cd export; sudo 7za a ../$arc)
 sudo rm -rf dump export
