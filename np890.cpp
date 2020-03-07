@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <cstring>
 #include <boost/filesystem.hpp>
+#include <zlib.h>
 
 void codec_xor(void *p, unsigned long size, const void *pattern, const unsigned long psize);
 
@@ -28,15 +29,15 @@ union setup_t {
 union device_t {
 	uint32_t raw[7];
 	struct {
-		uint32_t type, dest, size, devsize, compressed, pattern, cksum;
+		uint32_t type, dest, size, rawsize, compressed, pattern, cksum;
 	};
 };
 
 union system_t {
 	uint32_t raw[5];
 	struct {
-		uint32_t callback, size;
-		uint32_t _reserved0[1];
+		uint32_t index, size;
+		uint32_t rawsize;
 		uint32_t compressed;
 	};
 };
@@ -68,15 +69,47 @@ static std::string destination(uint32_t v)
 	return pdest[v];
 }
 
+static void zlib_inflate(void *zbuf, uint32_t zsize, void *ubuf, uint32_t usize)
+{
+	z_stream strm;
+	strm.next_in   = reinterpret_cast<z_const Bytef *>(zbuf);
+	strm.avail_in  = zsize;
+	strm.total_in  = 0;
+	strm.next_out  = reinterpret_cast<Bytef *>(ubuf);
+	strm.avail_out = usize;
+	strm.total_out = 0;
+	strm.zalloc    = Z_NULL;
+	strm.zfree     = Z_NULL;
+	strm.opaque    = Z_NULL;
+
+	// +32: Detect gzip or zlib
+	int err = inflateInit2(&strm, 32 + MAX_WBITS);
+	if (err != Z_OK) {
+		inflateEnd(&strm);
+		throw std::runtime_error("zlib inflate init error: " + std::string(zError(err)));
+	}
+	// Single step inflate
+	err = inflate(&strm, Z_FINISH);
+	inflateEnd(&strm);
+	if (err != Z_STREAM_END)
+		throw std::runtime_error("zlib inflate error: " + std::string(zError(err)));
+	if (strm.total_in != zsize)
+		throw std::runtime_error("zlib compressed size mismatch: " + std::to_string(strm.total_in) +
+				" should be " + std::to_string(zsize));
+	if (strm.total_out != usize)
+		throw std::runtime_error("zlib uncompressed size mismatch: " + std::to_string(strm.total_out) +
+				" should be " + std::to_string(usize));
+}
+
 static void copy(std::ifstream &sin, const std::string &out, const std::string &file,
-		long offset, unsigned long size, unsigned long align, int codec, bool ext, bool append = false)
+		long offset, unsigned long size, unsigned long align, int codec, bool ext, bool inflate = false)
 {
 	if (offset >= 0 && !sin.seekg(offset))
 		throw std::runtime_error("Could not seek to offset " + std::to_string(offset));
 
 	boost::filesystem::path p(out);
 	std::string filename = (p.parent_path() / file).native();
-	std::ofstream sout(filename, append ? std::ios::binary | std::ios::app : std::ios::binary);
+	std::ofstream sout(filename, std::ios::binary);
 	if (ext && !sout.is_open())
 		throw std::runtime_error("Could not open output file " + filename);
 
@@ -91,6 +124,34 @@ static void copy(std::ifstream &sin, const std::string &out, const std::string &
 		memset(&xpattern, codec, sizeof(xpattern));
 		px = &xpattern;
 		xsize = sizeof(xpattern);
+	}
+
+	void *ubuf = 0, *zbuf = 0;
+	while (inflate) {
+		uint32_t usize, zsize;
+		if (!sin.read(reinterpret_cast<char *>(&usize), sizeof(usize)))
+			throw std::runtime_error("Could not read uncompressed size");
+		if (!sin.read(reinterpret_cast<char *>(&zsize), sizeof(zsize)))
+			throw std::runtime_error("Could not read compressed size");
+		if (usize == 0) {
+			free(ubuf);
+			free(zbuf);
+			return;		// No padding applied
+		}
+		ubuf = realloc(ubuf, usize);
+		if (ubuf == nullptr)
+			throw std::runtime_error("Could not allocate inflate buffer");
+		uint32_t asize = (zsize + 7) & ~7;	// Align to 8-byte boundary
+		zbuf = realloc(zbuf, asize);
+		if (asize && zbuf == nullptr)
+			throw std::runtime_error("Could not allocate deflate buffer");
+		if (!sin.read(reinterpret_cast<char *>(zbuf), zsize))
+			throw std::runtime_error("Could not read zlib data");
+		if (px)
+			codec_xor(zbuf, asize, px, xsize);
+		zlib_inflate(zbuf, zsize, ubuf, usize);
+		if (ext)
+			sout.write(reinterpret_cast<char *>(ubuf), usize);
 	}
 
 	unsigned long bsize = 4 * 1024 * 1024;	// Block size 4MiB
@@ -142,8 +203,6 @@ void extract_890(const std::string &in, const std::string &out, bool ext)
 		{"ploader",     "Primary loader",         0,  0x8000, -1},
 		{"sloader",     "Secondary loader",  0x8000, 0x10000, -1},
 		{"updtool",     "Update tool",      0x18000, 0x18000, -1},
-		//{"version.bin", "Version section",  0x30000,    0x80, false},
-		//{"unknown.bin", "Unknown section",  0x30080,       0, false},
 	};
 	sout << "Fixed offset encrypted sections" << std::endl;
 	for (auto &ps: sections) {
@@ -190,11 +249,11 @@ void extract_890(const std::string &in, const std::string &out, bool ext)
 			throw std::runtime_error("Could not read system data section " + std::to_string(i));
 		std::string filename = "sys" + std::to_string(i) + (sys.compressed ? ".gz" : ".bin");
 		sout << "    sys" << i << std::endl;
-		sout << "        Callback:    " << sys.callback << std::endl;
-		sout << "        Size:        " << sys.size << std::endl;
-		sout << "        _Reserved:   " << sys._reserved0[0] << std::endl;
-		sout << "        Compressed:  " << sys.compressed << std::endl;
-		sout << "        Dumped file: " << filename << std::endl;
+		sout << "        Index:             " << sys.index << std::endl;
+		sout << "        Data size:         " << sys.size << std::endl;
+		sout << "        Uncompressed size: " << sys.rawsize << std::endl;
+		sout << "        Compressed:        " << sys.compressed << std::endl;
+		sout << "        Dumped file:       " << filename << std::endl;
 		copy(sin, out, filename, -1, sys.size, 1, 0, ext);
 	}
 
@@ -211,40 +270,16 @@ void extract_890(const std::string &in, const std::string &out, bool ext)
 		offset = fpos[i];
 		sout << "    dev" << i << std::endl;
 		sout << "        Type:              " << dev.type << std::endl;
-		sout << "        Destination:       " << dev.dest << "\t" << filename << std::endl;
+		sout << "        Destination:       " << filename << std::endl;
 		sout << "        Data size:         " << dev.size << std::endl;
-		sout << "        Device size:       " << dev.devsize << std::endl;
+		sout << "        Uncompressed size: " << dev.rawsize << std::endl;
 		sout << "        Compressed:        " << dev.compressed << std::endl;
 		sout << "        XOR pattern:       " << dev.pattern << std::endl;
 		sout << "        Checksum:          " << dev.cksum << std::endl;
 		sout << "        Offset:            " << offset << std::endl;
-
 		filename = std::string(basename(filename.c_str()));
-		filename += dev.compressed ? ".zlib" : filename.find('.') == std::string::npos ? ".bin" : "";
-
-		if (!sin.seekg(offset))
-			throw std::runtime_error("Could not seek to offset " + std::to_string(offset));
-		if (dev.compressed) {
-			uint32_t tusize, tzsize;
-			bool append = false;
-			for (;;) {
-				uint32_t usize, zsize;
-				if (!sin.read(reinterpret_cast<char *>(&usize), sizeof(usize)))
-					throw std::runtime_error("Could not read uncompressed size");
-				if (!sin.read(reinterpret_cast<char *>(&zsize), sizeof(zsize)))
-					throw std::runtime_error("Could not read compressed size");
-				if (usize == 0)
-					break;
-				copy(sin, out, filename, -1, zsize, 1, dev.pattern, ext, append);
-				tusize += usize;
-				tzsize += zsize;
-				append = true;
-			}
-			sout << "        Uncompressed size: " << tusize << std::endl;
-			sout << "        Compressed size:   " << tzsize << std::endl;
-		} else {
-			copy(sin, out, filename, offset, dev.size, 1, dev.pattern, ext);
-		}
+		filename += filename.find('.') == std::string::npos ? ".bin" : "";
 		sout << "        Dumped file:       " << filename << std::endl;
+		copy(sin, out, filename, offset, dev.size, 1, dev.pattern, ext, dev.compressed);
 	}
 }

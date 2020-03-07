@@ -2,7 +2,7 @@
 all: mkpkg pkginfo xor pkginfo.mipsel
 
 mkpkg: main.cpp np1000.cpp np890.cpp
-	g++ -O3 -lboost_system -lboost_filesystem -o $@ $^
+	g++ -O3 -lboost_system -lboost_filesystem -lz -o $@ $^
 
 pkginfo: info.c
 	gcc -O3 -o $@ $^
