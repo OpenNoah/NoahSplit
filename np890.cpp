@@ -23,7 +23,24 @@ union setup_t {
 		uint32_t autorun;
 		uint32_t keeplogs;
 		uint32_t dumpnand;
+		uint32_t valid;
 	};
+	union {
+		uint32_t raw[18];
+		struct {
+			char date[32];
+			uint32_t autorun;
+			uint32_t quiet;
+			uint32_t _reserved0;
+			uint32_t _reserved1;
+			uint32_t keeplogs;
+			uint32_t dumpnand;
+			uint32_t _reserved2;
+			uint32_t _reserved3;
+			uint32_t _reserved4;
+			uint32_t _reserved5;
+		};
+	} menu;
 };
 
 union device_t {
@@ -216,16 +233,39 @@ void extract_890(const std::string &in, const std::string &out, bool ext)
 	if (!sin.seekg(offset))
 		throw std::runtime_error("Could not seek to offset " + std::to_string(offset));
 	setup_t setup;
-	if (!sin.read(reinterpret_cast<char *>(&setup), sizeof(setup.raw)))
-		throw std::runtime_error("Could not read setup information");
-	sout << std::endl << "Setup Information" << std::dec << std::endl;
-	sout << "    Version:   " << setup.version << std::endl;
-	sout << "    Date:      " << setup.date << std::endl;
-	sout << "    Model:     " << setup.model << std::endl;
-	sout << "    Hostname:  " << setup.hostname << std::endl;
-	sout << "    Auto run:  " << setup.autorun << std::endl;
-	sout << "    Keep logs: " << setup.keeplogs << std::endl;
-	sout << "    Dump NAND: " << setup.dumpnand << std::endl;
+	// Try early version first
+	if (!sin.read(reinterpret_cast<char *>(&setup.menu), sizeof(setup.menu.raw)))
+		throw std::runtime_error("Could not read menu information");
+	setup.valid = setup.model[0] == 'n';
+	if (!setup.valid) {
+		// Confirmed early version
+		sout << std::endl << "Menu Information" << std::dec << std::endl;
+		sout << "    Date:        " << setup.menu.date << std::endl;
+		sout << "    Auto run:    " << setup.menu.autorun << std::endl;
+		sout << "    Quiet:       " << setup.menu.quiet << std::endl;
+		sout << "    Reserved[0]: " << setup.menu._reserved0 << std::endl;
+		sout << "    Reserved[1]: " << setup.menu._reserved1 << std::endl;
+		sout << "    Keep logs:   " << setup.menu.keeplogs << std::endl;
+		sout << "    Dump NAND:   " << setup.menu.dumpnand << std::endl;
+		sout << "    Reserved[2]: " << setup.menu._reserved2 << std::endl;
+		sout << "    Reserved[3]: " << setup.menu._reserved3 << std::endl;
+		sout << "    Reserved[4]: " << setup.menu._reserved4 << std::endl;
+		sout << "    Reserved[5]: " << setup.menu._reserved5 << std::endl;
+	} else {
+		// No, this should be the newer version
+		if (!sin.seekg(offset))
+			throw std::runtime_error("Could not seek to offset " + std::to_string(offset));
+		if (!sin.read(reinterpret_cast<char *>(&setup), sizeof(setup.raw)))
+			throw std::runtime_error("Could not read setup information");
+		sout << std::endl << "Setup Information" << std::dec << std::endl;
+		sout << "    Version:   " << setup.version << std::endl;
+		sout << "    Date:      " << setup.date << std::endl;
+		sout << "    Model:     " << setup.model << std::endl;
+		sout << "    Hostname:  " << setup.hostname << std::endl;
+		sout << "    Auto run:  " << setup.autorun << std::endl;
+		sout << "    Keep logs: " << setup.keeplogs << std::endl;
+		sout << "    Dump NAND: " << setup.dumpnand << std::endl;
+	}
 
 	// Device information
 	uint32_t ndev;
@@ -242,7 +282,7 @@ void extract_890(const std::string &in, const std::string &out, bool ext)
 	uint32_t nsys;
 	if (!sin.read(reinterpret_cast<char *>(&nsys), sizeof(nsys)))
 		throw std::runtime_error("Could not read number of system data sections");
-	sout << std::endl << "System data sections" << std::endl;
+	sout << std::endl << "System file sections" << std::endl;
 	for (uint32_t i = 0; i < nsys; i++) {
 		system_t sys;
 		if (!sin.read(reinterpret_cast<char *>(&sys), sizeof(sys.raw)))
@@ -278,8 +318,9 @@ void extract_890(const std::string &in, const std::string &out, bool ext)
 		sout << "        Checksum:          " << dev.cksum << std::endl;
 		sout << "        Offset:            " << offset << std::endl;
 		filename = std::string(basename(filename.c_str()));
-		filename += filename.find('.') == std::string::npos ? ".bin" : "";
+		filename += !setup.valid && dev.compressed ? ".gz" :
+				filename.find('.') == std::string::npos ? ".bin" : "";
 		sout << "        Dumped file:       " << filename << std::endl;
-		copy(sin, out, filename, offset, dev.size, 1, dev.pattern, ext, dev.compressed);
+		copy(sin, out, filename, offset, dev.size, 1, dev.pattern, ext, setup.valid && dev.compressed);
 	}
 }
