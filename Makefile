@@ -11,4 +11,8 @@ pkginfo: info.c
 	g++ -O3 -o $@ $^
 
 pkginfo.mipsel: info.c
-	mipsel-linux-gcc -s -static -Os -o $@ $^ -fdata-sections -ffunction-sections -fno-omit-frame-pointer -Wl,--gc-sections
+	mipsel-linux-gcc -s --std=gnu99 -static -Os -o $@ $^ -fdata-sections -ffunction-sections -fno-omit-frame-pointer -Wl,--gc-sections
+
+.PHONY: clean
+clean:
+	rm -f mkpkg pkginfo pkginfo.mipsel
