@@ -1,5 +1,5 @@
 mkpkg
 pkginfo
-pkginfo.mipsel
+pkginfo*.mipsel
 upgrade*.bin
 xor
