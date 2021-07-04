@@ -3,3 +3,4 @@ pkginfo
 pkginfo*.mipsel
 upgrade*.bin
 xor
+conv
