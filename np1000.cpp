@@ -9,6 +9,9 @@
 #include <cstring>
 #include <boost/filesystem.hpp>
 
+// TODO: This depends on NAND
+#define UBI_LEB_SIZE	0x7e000
+
 void copy(std::ofstream &out, std::ifstream &in, unsigned long size, unsigned long align);
 uint32_t crc32(uint32_t crc, const void *buf, size_t size);
 
@@ -74,6 +77,19 @@ static std::string fstype(uint32_t v)
 	return "unknown" + std::to_string(v);
 }
 
+static void codec(void *p, unsigned long size)
+{
+	if (size % 8)
+		throw std::runtime_error("Unexpected codec block size " + std::to_string(size));
+	uint64_t *pv = static_cast<uint64_t *>(p);
+	while (size) {
+		uint64_t v = *pv;
+		// Swap every 2 bits
+		*pv++ = ((v & 0xaaaaaaaaaaaaaaaa) >> 1) | ((v & 0x5555555555555555) << 1);
+		size -= 8;
+	}
+}
+
 uint32_t np_crc32(uint32_t crc, const void *buf, size_t size)
 {
 	return 0xffffffff ^ crc32(crc ^ 0xffffffff, buf, size);
@@ -93,17 +109,29 @@ uint32_t np_crc32(std::ifstream &in, unsigned long size)
 	return crc;
 }
 
-static void codec(void *p, unsigned long size)
+int is_unmap_block(uint8_t *buf, uint32_t size)
 {
-	if (size % 8)
-		throw std::runtime_error("Unexpected codec block size " + std::to_string(size));
-	uint64_t *pv = static_cast<uint64_t *>(p);
-	while (size) {
-		uint64_t v = *pv;
-		// Swap every 2 bits
-		*pv++ = ((v & 0xaaaaaaaaaaaaaaaa) >> 1) | ((v & 0x5555555555555555) << 1);
-		size -= 8;
+	for (uint32_t i = 0; i < size; i++)
+		if (buf[i] != 0xff)
+			return 0;
+	return 1;
+}
+
+uint32_t np_crc32_ubifs(std::ifstream &in, unsigned long size)
+{
+	static const unsigned long block = UBI_LEB_SIZE + 4;
+	uint8_t buf[block];
+	uint32_t crc = 0;
+	while (size >= 4) {
+		unsigned long s = std::min(block, size);
+		in.read(reinterpret_cast<char *>(buf), s);
+		// ubirefimg: First u32 means number of skipped unmapped LEBs
+		// is_unmap_block should never return 1 for ubirefimg images
+		if (is_unmap_block(buf + 4, s - 4) == 0)
+			crc = np_crc32(crc, buf + 4, s - 4);
+		size -= s;
 	}
+	return crc;
 }
 
 static void append(header_t::pkg_t &s, std::ofstream &sout, const std::string &out,
@@ -123,7 +151,10 @@ static void append(header_t::pkg_t &s, std::ofstream &sout, const std::string &o
 	copy(sout, sbin, s.size, 512);	// Align to 512-byte boundary for mount
 
 	sbin.seekg(0);
-	s.crc = np_crc32(sbin, s.size);
+	if (s.fstype == 4 || s.fstype == 8)
+		s.crc = np_crc32_ubifs(sbin, s.size);
+	else
+		s.crc = np_crc32(sbin, s.size);
 	std::clog << " crc=0x" << std::hex << s.crc << std::endl;
 }
 
