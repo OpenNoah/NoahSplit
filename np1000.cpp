@@ -37,7 +37,7 @@ enum {
 	FsMsdos,
 	FsUnknown2,
 	FsYaffs,
-	FsYaffsOob,
+	FsRawNand,
 	FsUnknown5,
 	FsRaw,
 	FsNor,
@@ -85,8 +85,8 @@ static uint32_t fstype(const std::string &str)
 		return FsNor;
 	else if (str == "yaffs")
 		return FsYaffs;
-	else if (str == "yaffs+oob")
-		return FsYaffsOob;
+	else if (str == "nand")
+		return FsRawNand;
 	else if (str == "ubifs")
 		return FsUbifs;
 	else if (str.compare(0, 7, "unknown") == 0)
@@ -102,7 +102,7 @@ static std::string fstype(uint32_t v)
 		"msdos",
 		"unknown2",
 		"yaffs",
-		"yaffs+oob",
+		"nand",
 		"unknown5",
 		"raw",
 		"nor",
@@ -191,7 +191,7 @@ static void verify_crc32(std::string path, const header_t::pkg_t &s, const char 
 	if (s.fstype == FsUbifs) {
 		unsigned long leb_size = tag_ubifs_leb_size(tag);
 		crc = np_crc32_ubifs(sbin, s.size, leb_size);
-	} else if (s.fstype == FsYaffsOob) {
+	} else if (s.fstype == FsRawNand) {
 		unsigned long page, oob;
 		tag_nand_size(tag, page, oob);
 		crc = np_crc32_nand(sbin, s.size, page, oob);
@@ -223,7 +223,7 @@ static void append(const char *tag, header_t::pkg_t &s,
 	if (s.fstype == FsUbifs) {
 		unsigned long leb_size = tag_ubifs_leb_size(tag);
 		s.crc = np_crc32_ubifs(sbin, s.size, leb_size);
-	} else if (s.fstype == FsYaffsOob) {
+	} else if (s.fstype == FsRawNand) {
 		unsigned long page, oob;
 		tag_nand_size(tag, page, oob);
 		s.crc = np_crc32_nand(sbin, s.size, page, oob);
