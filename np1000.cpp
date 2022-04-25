@@ -10,6 +10,7 @@
 #include <boost/filesystem.hpp>
 
 void copy(std::ofstream &out, std::ifstream &in, unsigned long size, unsigned long align);
+uint32_t crc32(uint32_t crc, const void *buf, size_t size);
 
 #pragma pack(push, 1)
 struct header_t {
@@ -73,6 +74,25 @@ static std::string fstype(uint32_t v)
 	return "unknown" + std::to_string(v);
 }
 
+uint32_t np_crc32(uint32_t crc, const void *buf, size_t size)
+{
+	return 0xffffffff ^ crc32(crc ^ 0xffffffff, buf, size);
+}
+
+uint32_t np_crc32(std::ifstream &in, unsigned long size)
+{
+	static const unsigned long block = 4 * 1024 * 1024;	// Block size 4MiB
+	uint8_t buf[block];
+	uint32_t crc = 0;
+	while (size) {
+		unsigned long s = std::min(block, size);
+		in.read(reinterpret_cast<char *>(buf), s);
+		crc = np_crc32(crc, buf, s);
+		size -= s;
+	}
+	return crc;
+}
+
 static void codec(void *p, unsigned long size)
 {
 	if (size % 8)
@@ -99,9 +119,12 @@ static void append(header_t::pkg_t &s, std::ofstream &sout, const std::string &o
 	s.size = sbin.tellg();
 	sbin.seekg(0);
 
-	std::clog << "if=" << filename << " of=" << out << " seek=" << sout.tellp() << " size=" << s.size << std::endl;
+	std::clog << "if=" << filename << " of=" << out << " seek=" << sout.tellp() << " size=" << s.size;
 	copy(sout, sbin, s.size, 512);	// Align to 512-byte boundary for mount
-	s.crc = 0;
+
+	sbin.seekg(0);
+	s.crc = np_crc32(sbin, s.size);
+	std::clog << " crc=0x" << std::hex << s.crc << std::endl;
 }
 
 void create_1000(const std::string &in, const std::string &out)
