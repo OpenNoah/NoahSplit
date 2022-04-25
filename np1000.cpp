@@ -9,12 +9,6 @@
 #include <cstring>
 #include <boost/filesystem.hpp>
 
-// TODO: This depends on NAND
-#define UBI_LEB_SIZE	0x7e000
-
-void copy(std::ofstream &out, std::ifstream &in, unsigned long size, unsigned long align);
-uint32_t crc32(uint32_t crc, const void *buf, size_t size);
-
 #pragma pack(push, 1)
 struct header_t {
 	union {
@@ -38,16 +32,63 @@ struct header_t {
 };
 #pragma pack(pop)
 
+enum {
+	FsNone,
+	FsMsdos,
+	FsUnknown2,
+	FsYaffs,
+	FsYaffsOob,
+	FsUnknown5,
+	FsRaw,
+	FsNor,
+	FsUbifs,
+} fs_type_t;
+
+void copy(std::ofstream &out, std::ifstream &in, unsigned long size, unsigned long align);
+uint32_t crc32(uint32_t crc, const void *buf, size_t size);
+
+static unsigned long tag_ubifs_leb_size(const char *tag)
+{
+	if (strcmp(tag, "np1300") == 0)
+		return 252 * 1024;
+	else if (strcmp(tag, "np1500") == 0)
+		return 252 * 1024;
+	else if (strcmp(tag, "np1501") == 0)
+		return 504 * 1024;
+	else if (strcmp(tag, "np1380") == 0)
+		return 504 * 1024;
+	else if (strcmp(tag, "np2150") == 0)
+		return 504 * 1024;
+	//throw std::runtime_error("Unknown ubifs LEB size for " + std::string(tag));
+	return 252 * 1024;
+}
+
+static void tag_nand_size(const char *tag, unsigned long &page, unsigned long &oob)
+{
+	if (strcmp(tag, "np1100") == 0) {
+		page = 2048;
+		oob = 64;
+		return;
+	}
+	throw std::runtime_error("Unknown NAND size for " + std::string(tag));
+}
+
 static uint32_t fstype(const std::string &str)
 {
 	if (str == "none")
-		return 0;
+		return FsNone;
+	else if (str == "msdos")
+		return FsMsdos;
 	else if (str == "raw")
-		return 6;
+		return FsRaw;
 	else if (str == "nor")
-		return 7;
+		return FsNor;
+	else if (str == "yaffs")
+		return FsYaffs;
+	else if (str == "yaffs+oob")
+		return FsYaffsOob;
 	else if (str == "ubifs")
-		return 8;
+		return FsUbifs;
 	else if (str.compare(0, 7, "unknown") == 0)
 		return strtoul(str.data() + 7, nullptr, 0);
 	else
@@ -61,19 +102,14 @@ static std::string fstype(uint32_t v)
 		"msdos",
 		"unknown2",
 		"yaffs",
-		"unknown4",
+		"yaffs+oob",
 		"unknown5",
 		"raw",
 		"nor",
 		"ubifs",
 	};
-	switch (v) {
-	case 0:
-	case 6:
-	case 7:
-	case 8:
+	if (v < 9)
 		return pfstype[v];
-	}
 	return "unknown" + std::to_string(v);
 }
 
@@ -117,9 +153,9 @@ int is_unmap_block(uint8_t *buf, uint32_t size)
 	return 1;
 }
 
-uint32_t np_crc32_ubifs(std::ifstream &in, unsigned long size)
+uint32_t np_crc32_ubifs(std::ifstream &in, unsigned long size, unsigned long leb_size)
 {
-	static const unsigned long block = UBI_LEB_SIZE + 4;
+	const unsigned long block = leb_size + 4;
 	uint8_t buf[block];
 	uint32_t crc = 0;
 	while (size >= 4) {
@@ -134,19 +170,40 @@ uint32_t np_crc32_ubifs(std::ifstream &in, unsigned long size)
 	return crc;
 }
 
-static void verify_crc32(std::string path, const header_t::pkg_t &s)
+uint32_t np_crc32_nand(std::ifstream &in, unsigned long size, unsigned long page, unsigned long oob)
+{
+	const unsigned long block = page + oob;
+	uint8_t buf[block];
+	uint32_t crc = 0;
+	while (size >= 4) {
+		unsigned long s = std::min(block, size);
+		in.read(reinterpret_cast<char *>(buf), s);
+		crc = np_crc32(crc, buf, s < page ? s : page);
+		size -= s;
+	}
+	return crc;
+}
+
+static void verify_crc32(std::string path, const header_t::pkg_t &s, const char *tag)
 {
 	std::ifstream sbin(path);
 	uint32_t crc = 0;
-	if (s.fstype == 4 || s.fstype == 8)
-		crc = np_crc32_ubifs(sbin, s.size);
-	else
+	if (s.fstype == FsUbifs) {
+		unsigned long leb_size = tag_ubifs_leb_size(tag);
+		crc = np_crc32_ubifs(sbin, s.size, leb_size);
+	} else if (s.fstype == FsYaffsOob) {
+		unsigned long page, oob;
+		tag_nand_size(tag, page, oob);
+		crc = np_crc32_nand(sbin, s.size, page, oob);
+	} else {
 		crc = np_crc32(sbin, s.size);
+	}
 	if (crc != s.crc)
 		throw std::runtime_error("Checksum mismatch!");
 }
 
-static void append(header_t::pkg_t &s, std::ofstream &sout, const std::string &out,
+static void append(const char *tag, header_t::pkg_t &s,
+		std::ofstream &sout, const std::string &out,
 		const boost::filesystem::path &parent, const std::string &file)
 {
 	std::string filename((parent / file).native());
@@ -163,10 +220,16 @@ static void append(header_t::pkg_t &s, std::ofstream &sout, const std::string &o
 	copy(sout, sbin, s.size, 512);	// Align to 512-byte boundary for mount
 
 	sbin.seekg(0);
-	if (s.fstype == 4 || s.fstype == 8)
-		s.crc = np_crc32_ubifs(sbin, s.size);
-	else
+	if (s.fstype == FsUbifs) {
+		unsigned long leb_size = tag_ubifs_leb_size(tag);
+		s.crc = np_crc32_ubifs(sbin, s.size, leb_size);
+	} else if (s.fstype == FsYaffsOob) {
+		unsigned long page, oob;
+		tag_nand_size(tag, page, oob);
+		s.crc = np_crc32_nand(sbin, s.size, page, oob);
+	} else {
 		s.crc = np_crc32(sbin, s.size);
+	}
 	std::clog << " crc=0x" << std::hex << s.crc << std::endl;
 }
 
@@ -199,7 +262,7 @@ void create_1000(const std::string &in, const std::string &out)
 			s.ver = pkg.ver;
 			s.fstype = pkg.fstype;
 			strncpy(s.dev, pkg.dev.c_str(), sizeof(s.dev));
-			append(s, sout, out, parent, pkg.file);
+			append(h.tag, s, sout, out, parent, pkg.file);
 			if (pkg.crcovw)
 				s.crc = pkg.crc;
 			// Reset
@@ -316,6 +379,6 @@ void extract_1000(const std::string &in, const std::string &out, bool ext)
 			throw std::runtime_error("Unexpected EOF at " + in + " offset " + std::to_string(s->offset));
 		copy(sbin, sin, s->size, 1);
 		sbin.close();
-		verify_crc32(filename, *s);
+		verify_crc32(filename, *s, h.tag);
 	}
 }
