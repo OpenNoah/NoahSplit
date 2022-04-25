@@ -230,7 +230,7 @@ static void append(const char *tag, header_t::pkg_t &s,
 	} else {
 		s.crc = np_crc32(sbin, s.size);
 	}
-	std::clog << " crc=0x" << std::hex << s.crc << std::endl;
+	std::clog << " crc=0x" << std::hex << std::setfill('0') << std::setw(8) << s.crc << std::endl;
 }
 
 void create_1000(const std::string &in, const std::string &out)
@@ -374,7 +374,7 @@ void extract_1000(const std::string &in, const std::string &out, bool ext)
 		if (!sbin.is_open())
 			throw std::runtime_error("Could not open output file " + filename);
 		std::clog << "if=" << in << " of=" << filename << " skip=" << s->offset << " size=" << s->size
-			  << " crc=0x" << std::hex << s->crc << std::endl;
+			  << " crc=0x" << std::hex << std::setfill('0') << std::setw(8) << s->crc << std::endl;
 		if (!sin.seekg(s->offset))
 			throw std::runtime_error("Unexpected EOF at " + in + " offset " + std::to_string(s->offset));
 		copy(sbin, sin, s->size, 1);
