@@ -134,6 +134,18 @@ uint32_t np_crc32_ubifs(std::ifstream &in, unsigned long size)
 	return crc;
 }
 
+static void verify_crc32(std::string path, const header_t::pkg_t &s)
+{
+	std::ifstream sbin(path);
+	uint32_t crc = 0;
+	if (s.fstype == 4 || s.fstype == 8)
+		crc = np_crc32_ubifs(sbin, s.size);
+	else
+		crc = np_crc32(sbin, s.size);
+	if (crc != s.crc)
+		throw std::runtime_error("Checksum mismatch!");
+}
+
 static void append(header_t::pkg_t &s, std::ofstream &sout, const std::string &out,
 		const boost::filesystem::path &parent, const std::string &file)
 {
@@ -298,10 +310,12 @@ void extract_1000(const std::string &in, const std::string &out, bool ext)
 		std::ofstream sbin(filename, std::ios::binary);
 		if (!sbin.is_open())
 			throw std::runtime_error("Could not open output file " + filename);
-		std::clog << "if=" << in << " of=" << filename << " skip=" << s->offset << " size=" << s->size << std::endl;
+		std::clog << "if=" << in << " of=" << filename << " skip=" << s->offset << " size=" << s->size
+			  << " crc=0x" << std::hex << s->crc << std::endl;
 		if (!sin.seekg(s->offset))
 			throw std::runtime_error("Unexpected EOF at " + in + " offset " + std::to_string(s->offset));
 		copy(sbin, sin, s->size, 1);
 		sbin.close();
+		verify_crc32(filename, *s);
 	}
 }
