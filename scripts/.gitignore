@@ -1,0 +1,4 @@
+*.bin
+*.qcow2
+*.pkg
+upgrade
