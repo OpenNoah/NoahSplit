@@ -7,7 +7,8 @@
 #include <stdexcept>
 #include <cstdint>
 #include <cstring>
-#include <boost/filesystem.hpp>
+#include <filesystem>
+#include <vector>
 
 #pragma pack(push, 1)
 struct header_t {
@@ -156,15 +157,15 @@ int is_unmap_block(uint8_t *buf, uint32_t size)
 uint32_t np_crc32_ubifs(std::ifstream &in, unsigned long size, unsigned long leb_size)
 {
 	const unsigned long block = leb_size + 4;
-	uint8_t buf[block];
+	std::vector<uint8_t> buf(block);
 	uint32_t crc = 0;
 	while (size >= 4) {
 		unsigned long s = std::min(block, size);
-		in.read(reinterpret_cast<char *>(buf), s);
+		in.read(reinterpret_cast<char *>(buf.data()), s);
 		// ubirefimg: First u32 means number of skipped unmapped LEBs
 		// is_unmap_block should never return 1 for ubirefimg images
-		if (is_unmap_block(buf + 4, s - 4) == 0)
-			crc = np_crc32(crc, buf + 4, s - 4);
+		if (is_unmap_block(buf.data() + 4, s - 4) == 0)
+			crc = np_crc32(crc, buf.data() + 4, s - 4);
 		size -= s;
 	}
 	return crc;
@@ -173,12 +174,12 @@ uint32_t np_crc32_ubifs(std::ifstream &in, unsigned long size, unsigned long leb
 uint32_t np_crc32_nand(std::ifstream &in, unsigned long size, unsigned long page, unsigned long oob)
 {
 	const unsigned long block = page + oob;
-	uint8_t buf[block];
+	std::vector<uint8_t> buf(block);
 	uint32_t crc = 0;
 	while (size >= 4) {
 		unsigned long s = std::min(block, size);
-		in.read(reinterpret_cast<char *>(buf), s);
-		crc = np_crc32(crc, buf, s < page ? s : page);
+		in.read(reinterpret_cast<char *>(buf.data()), s);
+		crc = np_crc32(crc, buf.data(), s < page ? s : page);
 		size -= s;
 	}
 	return crc;
@@ -204,9 +205,9 @@ static void verify_crc32(std::string path, const header_t::pkg_t &s, const char 
 
 static void append(const char *tag, header_t::pkg_t &s,
 		std::ofstream &sout, const std::string &out,
-		const boost::filesystem::path &parent, const std::string &file)
+		const std::filesystem::path &parent, const std::string &file)
 {
-	std::string filename((parent / file).native());
+	std::string filename((parent / file).string());
 	std::ifstream sbin(filename);
 	if (!sbin.is_open())
 		throw std::runtime_error("Could not open input file " + filename);
@@ -248,7 +249,7 @@ void create_1000(const std::string &in, const std::string &out)
 	header_t &h(*reinterpret_cast<header_t *>(header));
 	sout.write(reinterpret_cast<char *>(header), sizeof(header));
 
-	boost::filesystem::path parent(boost::filesystem::path(in).parent_path());
+	std::filesystem::path parent(std::filesystem::path(in).parent_path());
 	struct {
 		uint32_t idx, include = 0;
 		uint32_t ver, fstype, crc;
@@ -368,8 +369,8 @@ void extract_1000(const std::string &in, const std::string &out, bool ext)
 		// Extract segment to file
 		if (!ext)
 			continue;
-		boost::filesystem::path p(out);
-		filename = (p.parent_path() / filename).native();
+		std::filesystem::path p(out);
+		filename = (p.parent_path() / filename).string();
 		std::ofstream sbin(filename, std::ios::binary);
 		if (!sbin.is_open())
 			throw std::runtime_error("Could not open output file " + filename);

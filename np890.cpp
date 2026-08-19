@@ -7,7 +7,8 @@
 #include <stdexcept>
 #include <cstdint>
 #include <cstring>
-#include <boost/filesystem.hpp>
+#include <filesystem>
+#include <vector>
 #include <zlib.h>
 
 void codec_xor(void *p, unsigned long size, const void *pattern, const unsigned long psize);
@@ -143,8 +144,8 @@ static void copy(std::ifstream &sin, const std::string &out, const std::string &
 	if (offset >= 0 && !sin.seekg(offset))
 		throw std::runtime_error("Could not seek to offset " + std::to_string(offset));
 
-	boost::filesystem::path p(out);
-	std::string filename = (p.parent_path() / file).native();
+	std::filesystem::path p(out);
+	std::string filename = (p.parent_path() / file).string();
 	std::ofstream sout(filename, std::ios::binary);
 	if (ext && !sout.is_open())
 		throw std::runtime_error("Could not open output file " + filename);
@@ -191,16 +192,16 @@ static void copy(std::ifstream &sin, const std::string &out, const std::string &
 	}
 
 	unsigned long bsize = 4 * 1024 * 1024;	// Block size 4MiB
-	uint8_t buf[bsize];
+	std::vector<uint8_t> buf(bsize);
 	unsigned long read = 0, rsize = size;
 	bsize = rsize ? std::min(rsize, bsize) : bsize;
-	while (sin.read(reinterpret_cast<char *>(buf), bsize), (read = sin.gcount()) != 0) {
+	while (sin.read(reinterpret_cast<char *>(buf.data()), bsize), (read = sin.gcount()) != 0) {
 		if (px) {
 			unsigned long bsize = (read + 7) / 8 * 8;
-			codec_xor(buf, bsize, px, xsize);
+			codec_xor(buf.data(), bsize, px, xsize);
 		}
 		if (ext)
-			sout.write(reinterpret_cast<char *>(buf), read);
+			sout.write(reinterpret_cast<char *>(buf.data()), read);
 		if (rsize) {
 			rsize -= read;
 			if (rsize == 0)
@@ -214,8 +215,8 @@ static void copy(std::ifstream &sin, const std::string &out, const std::string &
 
 	unsigned long padding = (align - (size % align)) % align;
 	if (ext && padding) {
-		bzero(buf, padding);
-		sout.write(reinterpret_cast<char *>(buf), padding);
+		bzero(buf.data(), padding);
+		sout.write(reinterpret_cast<char *>(buf.data()), padding);
 	}
 }
 
@@ -309,7 +310,7 @@ void extract_890(const std::string &in, const std::string &out, bool ext)
 	uint32_t ndev;
 	if (!sin.read(reinterpret_cast<char *>(&ndev), sizeof(ndev)))
 		throw std::runtime_error("Could not read number of devices");
-	device_t devs[ndev];
+	std::vector<device_t> devs(ndev);
 	for (uint32_t i = 0; i < ndev; i++) {
 		device_t &dev = devs[i];
 		if (!sin.read(reinterpret_cast<char *>(&dev), sizeof(dev.raw)))
@@ -355,7 +356,7 @@ void extract_890(const std::string &in, const std::string &out, bool ext)
 		sout << "        XOR pattern:       " << dev.pattern << std::endl;
 		sout << "        Checksum:          " << dev.cksum << std::endl;
 		sout << "        Offset:            " << offset << std::endl;
-		filename = std::string(basename(filename.c_str()));
+		filename = std::filesystem::path(filename).filename().string();
 		filename += setup.type == 1 && dev.compressed ? ".gz" :
 				filename.find('.') == std::string::npos ? ".bin" : "";
 		sout << "        Dumped file:       " << filename << std::endl;

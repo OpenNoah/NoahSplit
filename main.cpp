@@ -164,7 +164,7 @@ int main(int argc, char *argv[])
 			else
 				extract_890(in, out, op == OpExtract);
 		} else {
-			throw std::runtime_error("Unknown type " + type);
+			throw std::runtime_error("Unknown type " + std::to_string(type));
 		}
 	} catch (std::exception &e) {
 		std::cerr << "Error: " << e.what() << std::endl;

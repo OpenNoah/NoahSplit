@@ -2,13 +2,13 @@
 all: mkpkg pkginfo xor conv pkginfo.mipsel pkginfo-static.mipsel
 
 mkpkg: main.cpp np1000.cpp np890.cpp
-	g++ -O3 -o $@ $^ -lboost_system -lboost_filesystem -lz
+	g++ -std=c++17 -O3 -o $@ $^ -lz
 
 pkginfo: info.c
 	gcc -O3 -o $@ $^
 
 %: %.cpp
-	g++ -O3 -o $@ $^
+	g++ -std=c++17 -O3 -o $@ $^
 
 pkginfo.mipsel: info.c
 	mipsel-linux-gcc -s --std=gnu99 -Os -o $@ $^ -fdata-sections -ffunction-sections -fno-omit-frame-pointer -Wl,--gc-sections
