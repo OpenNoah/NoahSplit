@@ -135,12 +135,12 @@ uint32_t np_crc32(uint32_t crc, const void *buf, size_t size)
 uint32_t np_crc32(std::ifstream &in, unsigned long size)
 {
 	static const unsigned long block = 4 * 1024 * 1024;	// Block size 4MiB
-	uint8_t buf[block];
+	std::vector<uint8_t> buf(block);
 	uint32_t crc = 0;
 	while (size) {
 		unsigned long s = std::min(block, size);
-		in.read(reinterpret_cast<char *>(buf), s);
-		crc = np_crc32(crc, buf, s);
+		in.read(reinterpret_cast<char *>(buf.data()), s);
+		crc = np_crc32(crc, buf.data(), s);
 		size -= s;
 	}
 	return crc;

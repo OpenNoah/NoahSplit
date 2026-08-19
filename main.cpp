@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <cstdint>
 #include <cstring>
+#include <vector>
 
 // https://web.mit.edu/freebsd/head/sys/libkern/crc32.c
 const uint32_t crc32_tab[] = {
@@ -92,16 +93,16 @@ void copy(std::ofstream &out, std::ifstream &in, unsigned long size, unsigned lo
 {
 	static const unsigned long block = 4 * 1024 * 1024;	// Block size 4MiB
 	unsigned long padding = (align - (size % align)) % align;
-	uint8_t buf[block];
+	std::vector<uint8_t> buf(block);
 	while (size) {
 		unsigned long s = std::min(block, size);
-		in.read(reinterpret_cast<char *>(buf), s);
-		out.write(reinterpret_cast<char *>(buf), s);
+		in.read(reinterpret_cast<char *>(buf.data()), s);
+		out.write(reinterpret_cast<char *>(buf.data()), s);
 		size -= s;
 	}
 	if (padding) {
-		bzero(buf, padding);
-		out.write(reinterpret_cast<char *>(buf), padding);
+		bzero(buf.data(), padding);
+		out.write(reinterpret_cast<char *>(buf.data()), padding);
 	}
 }
 
