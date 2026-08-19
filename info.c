@@ -36,7 +36,7 @@ static char strbuf[64];
 void codec(void *p, unsigned long size)
 {
 	if (size % 8) {
-		fprintf(stderr, "Unexpected codec block size %d\n", size);
+		fprintf(stderr, "Unexpected codec block size %lu\n", size);
 		exit(1);
 	}
 	uint64_t *pv = (uint64_t *)p;
@@ -100,7 +100,7 @@ void info(const char *in)
 
 		bzero(strbuf, sizeof(strbuf));
 		strncpy(strbuf, s->dev, sizeof(s->dev));
-		printf("%d" "\t0x%08x" "\t%s", i, s->ver, strbuf);
+		printf("%lu" "\t0x%08x" "\t%s", i, s->ver, strbuf);
 		printf("\t%s" "\t0x%08x" "\t0x%08x" "\t0x%08x\n",
 			fstype(s->fstype), s->offset, s->size, s->crc);
 	}

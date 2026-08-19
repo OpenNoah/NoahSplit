@@ -13,7 +13,7 @@ static char strbuf[64];
 void codec(void *p, unsigned long size)
 {
 	if (size % 8) {
-		fprintf(stderr, "Unexpected codec block size %d\n", size);
+		fprintf(stderr, "Unexpected codec block size %lu\n", size);
 		exit(1);
 	}
 	uint64_t *pv = (uint64_t *)p;
