@@ -10,11 +10,13 @@ pkginfo: info.c
 %: %.cpp
 	g++ -std=c++17 -O3 -o $@ $^
 
+MIPSEL_GCC ?= $(shell which mipsel-linux-gcc >/dev/null 2>&1 && echo mipsel-linux-gcc || echo mipsel-linux-gnu-gcc)
+
 pkginfo.mipsel: info.c
-	mipsel-linux-gcc -s --std=gnu99 -Os -o $@ $^ -fdata-sections -ffunction-sections -fno-omit-frame-pointer -Wl,--gc-sections
+	$(MIPSEL_GCC) -s --std=gnu99 -Os -o $@ $^ -fdata-sections -ffunction-sections -fno-omit-frame-pointer -Wl,--gc-sections
 
 pkginfo-static.mipsel: info.c
-	mipsel-linux-gcc -s --static --std=gnu99 -Os -o $@ $^ -fdata-sections -ffunction-sections -fno-omit-frame-pointer -Wl,--gc-sections
+	$(MIPSEL_GCC) -s --static --std=gnu99 -Os -o $@ $^ -fdata-sections -ffunction-sections -fno-omit-frame-pointer -Wl,--gc-sections
 
 .PHONY: clean
 clean:
